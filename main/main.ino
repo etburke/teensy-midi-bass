@@ -1,8 +1,44 @@
 #include <MIDI.h>
 
+// --- Piezo / velocity config ---
+// Wire each Ghost saddle preamp output to these pins (one per string).
+// String order: E=0, A=1, D=2, G=3
+const int PIEZO_PINS[4] = { A6, A7, A8, A9 };
+const int NUM_STRINGS = 4;
+
+// Peak values updated by the timer ISR, consumed at note-on.
+volatile int piezoPeak[NUM_STRINGS] = { 0, 0, 0, 0 };
+// Set true by main loop after consuming a peak so the ISR can reset it.
+volatile bool peakConsumed[NUM_STRINGS] = { true, true, true, true };
+
+IntervalTimer piezoTimer;
+
+void samplePiezos() {
+  for (int s = 0; s < NUM_STRINGS; s++) {
+    if (peakConsumed[s]) {
+      piezoPeak[s] = 0;
+      peakConsumed[s] = false;
+    }
+    int val = analogRead(PIEZO_PINS[s]);
+    if (val > piezoPeak[s]) {
+      piezoPeak[s] = val;
+    }
+  }
+}
+
+// Returns MIDI velocity (1–127) from the current peak for the given string,
+// then marks the peak as consumed so the ISR will reset it next cycle.
+int consumeVelocity(int stringIndex) {
+  int peak = piezoPeak[stringIndex];
+  peakConsumed[stringIndex] = true;
+  return max(1, map(peak, 0, 4095, 1, 127));
+}
+
+// --- Fret / note config ---
 void setup() {
-  // put your setup code here, to run once:
   analogReadResolution(12);
+  // Sample piezos every 1ms via hardware timer.
+  piezoTimer.begin(samplePiezos, 1000);
 }
 
 int analogPin = 0;
@@ -27,11 +63,11 @@ int rawNoteMap[23][2] = {
   { 1490, 55 },
   { 1340, 56 },
   { 1170, 57 },
-  { 980, 58 },
-  { 763, 59 },
-  { 550, 60 },
-  { 280, 61 },
-  { 0, 0 }
+  {  980, 58 },
+  {  763, 59 },
+  {  550, 60 },
+  {  280, 61 },
+  {    0,  0 }
 };
 
 int findNoteBucket(int val, int index) {
@@ -51,28 +87,29 @@ int noteFromRaw(int rawValue) {
 }
 
 int mode(int array[], int arrayLength) {
-    // modeMap is indexed by ADC value (0-4095 for 12-bit resolution)
-    static int modeMap[4096];
-    memset(modeMap, 0, sizeof(modeMap));
-    int maxEl = array[0];
-    int maxCount = 1;
+  static int modeMap[4096];
+  memset(modeMap, 0, sizeof(modeMap));
+  int maxEl = array[0];
+  int maxCount = 1;
 
-    for (int i = 0; i < arrayLength; i++) {
-        int el = array[i];
-        modeMap[el]++;
-
-        if (modeMap[el] > maxCount) {
-            maxEl = el;
-            maxCount = modeMap[el];
-        }
+  for (int i = 0; i < arrayLength; i++) {
+    int el = array[i];
+    modeMap[el]++;
+    if (modeMap[el] > maxCount) {
+      maxEl = el;
+      maxCount = modeMap[el];
     }
-    return maxEl;
+  }
+  return maxEl;
 }
 
 int prevNote = 0;
 const int sampleSize = 1000;
 int sampleCount = 0;
 int samples[sampleSize];
+
+// TODO: expand to per-string fret scanning; for now string 0 (E string) is used.
+const int ACTIVE_STRING = 0;
 
 void loop() {
   samples[sampleCount] = analogRead(analogPin);
@@ -87,13 +124,13 @@ void loop() {
       }
       if (currNote > 0) {
         Serial.println(currNote);
-        usbMIDI.sendNoteOn(currNote, 99, 1);
+        int velocity = consumeVelocity(ACTIVE_STRING);
+        usbMIDI.sendNoteOn(currNote, velocity, 1);
       }
       prevNote = currNote;
     }
     sampleCount = 0;
   }
-  // MIDI Controllers should discard incoming MIDI messages.
-  while (usbMIDI.read()) {
-  }
+
+  while (usbMIDI.read()) {}
 }
