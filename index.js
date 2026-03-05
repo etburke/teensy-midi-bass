@@ -68,9 +68,7 @@ const maxError = (Vin, Rref, stepCount) => {
 		.map((value, i) => {
 			value.NTE_R = Values
 				.slice(i, Values.length)
-				.reduce((a, b) => {
-					return (a.nearestNTE || a) + b.nearestNTE;
-				}, 0);
+				.reduce((sum, b) => sum + b.nearestNTE, 0);
 			return value;
 		});
 

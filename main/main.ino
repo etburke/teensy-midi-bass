@@ -50,20 +50,16 @@ int noteFromRaw(int rawValue) {
   return note;
 }
 
-int mode(int array[]) {
-    int arrayLength = sizeof(array) / sizeof(array[0]);
-    int modeMap[arrayLength];
+int mode(int array[], int arrayLength) {
+    // modeMap is indexed by ADC value (0-4095 for 12-bit resolution)
+    static int modeMap[4096];
+    memset(modeMap, 0, sizeof(modeMap));
     int maxEl = array[0];
     int maxCount = 1;
 
     for (int i = 0; i < arrayLength; i++) {
         int el = array[i];
-        if (modeMap[el] == 0) {
-            modeMap[el] = 1;
-        }
-        else {
-            modeMap[el]++;
-        }
+        modeMap[el]++;
 
         if (modeMap[el] > maxCount) {
             maxEl = el;
@@ -79,22 +75,24 @@ int sampleCount = 0;
 int samples[sampleSize];
 
 void loop() {
-  usbMIDI.sendNoteOff(prevNote, 0, 1);
-  
   samples[sampleCount] = analogRead(analogPin);
   sampleCount = sampleCount + 1;
-  
+
   if (sampleCount > sampleSize) {
-    int sampleMode = mode(samples);    
+    int sampleMode = mode(samples, sampleSize);
     int currNote = noteFromRaw(sampleMode);
-    if (currNote > 0) {
-      Serial.println(currNote);
-      usbMIDI.sendNoteOn(currNote, 99, 1);
-      prevNote = currNote; 
+    if (currNote != prevNote) {
+      if (prevNote > 0) {
+        usbMIDI.sendNoteOff(prevNote, 0, 1);
+      }
+      if (currNote > 0) {
+        Serial.println(currNote);
+        usbMIDI.sendNoteOn(currNote, 99, 1);
+      }
+      prevNote = currNote;
     }
     sampleCount = 0;
   }
-//  delay(10);
   // MIDI Controllers should discard incoming MIDI messages.
   while (usbMIDI.read()) {
   }
