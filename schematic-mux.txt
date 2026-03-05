@@ -1,0 +1,150 @@
+TEENSY MIDI BASS — MULTIPLEXER CIRCUIT
+=======================================
+Two 74HC4067 16-channel analog multiplexers replace the resistor ladder.
+Each fret gets a dedicated normally-open switch. No voltage calibration
+required; pressing a fret is binary: the channel reads HIGH or LOW.
+
+OVERVIEW
+--------
+22 fret positions (open string + frets 1-21) are spread across two
+74HC4067 chips. Both chips share 4 address lines (S0-S3) and a single
+signal line back to the Teensy. Each chip has its own active-low enable
+(/EN) pin so only one chip drives the signal line at a time.
+
+Total Teensy pins used: 7
+  Pin  2 → S0    (address bit 0, shared)
+  Pin  3 → S1    (address bit 1, shared)
+  Pin  4 → S2    (address bit 2, shared)
+  Pin  5 → S3    (address bit 3, shared)
+  Pin  6 → /EN1  (IC1 enable, active-low)
+  Pin  7 → /EN2  (IC2 enable, active-low)
+  Pin A0 → SIG   (shared signal input, digital read)
+
+
+POWER
+-----
+  3.3V ── Teensy 3.3V pin
+  GND  ── Teensy GND pin
+
+Place a 100nF ceramic decoupling capacitor between VCC and GND
+at each IC, as close to the VCC pin as possible.
+
+
+IC1 — 74HC4067  (open string + frets 1–15)
+-------------------------------------------
+
+                          74HC4067 (IC1)
+                        ┌───────────────┐
+             3.3V ─────▶│ VCC       GND │◀──── GND
+          [100nF to GND]│               │
+  Teensy Pin 6 (/EN) ──▶│ /EN       COM │──────────────────── Teensy Pin A0 (SIG)
+  Teensy Pin 2  (S0) ──▶│ S0            │
+  Teensy Pin 3  (S1) ──▶│ S1         C0 │──── open-string switch ──┐
+  Teensy Pin 4  (S2) ──▶│ S2         C1 │──── fret 1 switch  ──────┤
+  Teensy Pin 5  (S3) ──▶│ S3         C2 │──── fret 2 switch  ──────┤
+                         │            C3 │──── fret 3 switch  ──────┤
+                         │            C4 │──── fret 4 switch  ──────┤  (see switch
+                         │            C5 │──── fret 5 switch  ──────┤   wiring below)
+                         │            C6 │──── fret 6 switch  ──────┤
+                         │            C7 │──── fret 7 switch  ──────┤
+                         │            C8 │──── fret 8 switch  ──────┤
+                         │            C9 │──── fret 9 switch  ──────┤
+                         │           C10 │──── fret 10 switch ──────┤
+                         │           C11 │──── fret 11 switch ──────┤
+                         │           C12 │──── fret 12 switch ──────┤
+                         │           C13 │──── fret 13 switch ──────┤
+                         │           C14 │──── fret 14 switch ──────┤
+                         │           C15 │──── fret 15 switch ──────┘
+                        └───────────────┘
+
+
+IC2 — 74HC4067  (frets 16–21)
+------------------------------
+
+                          74HC4067 (IC2)
+                        ┌───────────────┐
+             3.3V ─────▶│ VCC       GND │◀──── GND
+          [100nF to GND]│               │
+  Teensy Pin 7 (/EN) ──▶│ /EN       COM │──────────────────── Teensy Pin A0 (SIG, shared)
+  Teensy Pin 2  (S0) ──▶│ S0            │
+  Teensy Pin 3  (S1) ──▶│ S1         C0 │──── fret 16 switch ─┐
+  Teensy Pin 4  (S2) ──▶│ S2         C1 │──── fret 17 switch ─┤
+  Teensy Pin 5  (S3) ──▶│ S3         C2 │──── fret 18 switch ─┤
+                         │            C3 │──── fret 19 switch ─┤
+                         │            C4 │──── fret 20 switch ─┤
+                         │            C5 │──── fret 21 switch ─┘
+                         │            C6 │──[10kΩ]── GND  ┐
+                         │            C7 │──[10kΩ]── GND  │
+                         │            C8 │──[10kΩ]── GND  │ unused channels
+                         │            C9 │──[10kΩ]── GND  │ tied low to prevent
+                         │           C10 │──[10kΩ]── GND  │ floating inputs
+                         │           C11 │──[10kΩ]── GND  │
+                         │           C12 │──[10kΩ]── GND  │
+                         │           C13 │──[10kΩ]── GND  │
+                         │           C14 │──[10kΩ]── GND  │
+                         │           C15 │──[10kΩ]── GND  ┘
+                        └───────────────┘
+
+
+PER-FRET SWITCH WIRING  (repeat for each of 22 positions)
+----------------------------------------------------------
+
+  3.3V
+   │
+  [SW]  ← normally-open tactile switch or conductive fret bar
+   │
+   ├──────────────── Cx (mux channel pin)
+   │
+  [10kΩ pull-down]
+   │
+  GND
+
+  Switch OPEN   → Cx = LOW  (0V through pull-down; fret not pressed)
+  Switch CLOSED → Cx = HIGH (3.3V through switch; fret pressed)
+
+  Use 10kΩ pull-down resistors. Do not omit them — a floating channel
+  input will cause random note triggers.
+
+
+SCANNING SEQUENCE (firmware)
+-----------------------------
+To read all 22 channels:
+
+  1.  Assert /EN1 LOW,  /EN2 HIGH  (enable IC1 only)
+  2.  Set S3:S0 = 0000 → read SIG  (open string)
+  3.  Set S3:S0 = 0001 → read SIG  (fret 1)
+  4.  ...
+  5.  Set S3:S0 = 1111 → read SIG  (fret 15)
+  6.  Assert /EN1 HIGH, /EN2 LOW   (enable IC2 only)
+  7.  Set S3:S0 = 0000 → read SIG  (fret 16)
+  8.  ...
+  9.  Set S3:S0 = 0101 → read SIG  (fret 21)
+  10. Assert /EN2 HIGH             (both disabled)
+
+Full scan completes in ~22 digitalRead() calls. At Teensy 3.x speeds
+this takes well under 1ms, giving near-zero latency with 100% certainty
+on each fret state (no ADC noise, no calibration, no voltage drift).
+
+The first pressed channel found in the scan maps directly to a MIDI note
+via a simple lookup table indexed 0–21 → MIDI notes 40–61.
+
+
+BILL OF MATERIALS (per guitar neck)
+-------------------------------------
+  Qty  Part              Notes
+  ---  ----              -----
+   2   74HC4067          16-channel analog mux, DIP-24 or SOIC-24
+   2   100nF ceramic cap 0.1µF bypass, X7R, ≥10V
+  22   10kΩ resistor     pull-downs, 1/8W or smaller
+  22   switch            conductive pad, tactile switch, or fret wire + contact strip
+
+
+COMPARISON WITH RESISTOR LADDER
+---------------------------------
+                    Resistor ladder    Mux + switches
+  Teensy pins       1 (analog)         7 (digital)
+  Calibration       Required           None
+  Voltage noise     Yes                No (binary)
+  Chord detection   No                 Yes (scan all channels)
+  BOM complexity    Low                Moderate
+  Wiring runs       1 signal wire      22 switch wires + 7 control wires
